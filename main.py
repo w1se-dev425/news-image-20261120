@@ -3,16 +3,17 @@
 Writes the front page for Friday 20 November 2026 to the output folder.
 The page itself ships in this repository as entry.png; this script checks
 that the file is a complete PNG (its signature, every chunk's checksum,
-the header size and the 1 MiB cap) and then moves a copy into place. It
-reads no clock, no network and no random source, so two runs produce the
-same file.
+the header size and the 1 MiB cap) and then writes a copy straight into
+the output folder, with no temporary file: the grader reads the output
+folder as another user, so a hidden temp file or a 0600 mode there breaks
+its output rules. It reads no clock, no network and no random source, so
+two runs produce the same file.
 """
 
 import hashlib
 import os
 import struct
 import sys
-import tempfile
 import zlib
 from pathlib import Path
 
@@ -80,16 +81,13 @@ def place(data, width, height):
     out_dir = Path(os.environ.get("MAKEFUN_OUTPUT_DIR", "/output"))
     out_dir.mkdir(parents=True, exist_ok=True)
     target = out_dir / SOURCE
-    handle, tmp = tempfile.mkstemp(dir=out_dir, prefix=".entry-", suffix=".png")
-    try:
-        with os.fdopen(handle, "wb") as stream:
-            stream.write(data)
-        if hashlib.sha256(Path(tmp).read_bytes()).hexdigest() != hashlib.sha256(data).hexdigest():
-            fail("temporary copy does not match the source")
-        os.replace(tmp, target)
-    finally:
-        if os.path.exists(tmp):
-            os.unlink(tmp)
+    target.write_bytes(data)
+    # Explicit mode: the grader reads /output as another user, and the
+    # ambient umask is not guaranteed, so do not leave it to chance.
+    os.chmod(target, 0o644)
+    after = target.read_bytes()
+    if hashlib.sha256(after).hexdigest() != hashlib.sha256(data).hexdigest():
+        fail(f"{target} came out different from the source")
     print(f"wrote {target} ({width}x{height}, {len(data)} bytes)")
 
 
